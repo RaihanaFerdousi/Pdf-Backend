@@ -40,4 +40,7 @@ app.post("/api/upload-pdf", (req, res) => {
   });
 });
 
-app.listen(3001, () => console.log("Backend listening on port 3001"));
+const port = process.env.PORT || 3001;
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Backend listening on port ${port}`);
+});
