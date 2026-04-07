@@ -4,16 +4,27 @@ import cors from "cors";
 import path from "path";
 import { exec } from "child_process";
 import { fileURLToPath } from "url";
+import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
 
-app.use(cors());
-app.use(fileUpload());
+const UPLOADS_DIR = path.join(__dirname, "uploads");
+const CONVERTED_DIR = path.join(__dirname, "converted");
+const APP_IMAGE_PATH = path.join(__dirname, "pdf2htmlEX.AppImage");
 
-app.use("/converted", express.static(path.join(__dirname, "converted")));
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (!fs.existsSync(CONVERTED_DIR)) fs.mkdirSync(CONVERTED_DIR, { recursive: true });
+
+app.use(cors({
+  origin: ["http://localhost:5173", "http://localhost:3000"],
+  credentials: true
+}));
+
+app.use(fileUpload());
+app.use("/converted", express.static(CONVERTED_DIR));
 
 app.post("/api/upload-pdf", (req, res) => {
   if (!req.files || !req.files.pdf) {
@@ -21,21 +32,24 @@ app.post("/api/upload-pdf", (req, res) => {
   }
 
   const pdfFile = req.files.pdf;
-  const uploadPath = path.join(__dirname, "uploads", pdfFile.name);
-  const outputName = pdfFile.name.replace(".pdf", ".html");
-  const outputPath = path.join(__dirname, "converted", outputName);
+  const safeFileName = `${Date.now()}-${pdfFile.name.replace(/\s+/g, "_")}`;
+  const uploadPath = path.join(UPLOADS_DIR, safeFileName);
+  const outputName = safeFileName.replace(".pdf", ".html");
 
   pdfFile.mv(uploadPath, (err) => {
     if (err) return res.status(500).send(err);
 
-    const command = `./pdf2htmlEX.AppImage --outline 0 --dest-dir "./converted" "${uploadPath}" "${outputName}"`;
+    const command = `"${APP_IMAGE_PATH}" --appimage-extract-and-run --outline 0 --dest-dir "${CONVERTED_DIR}" "${uploadPath}" "${outputName}"`;
 
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        console.error(`exec error: ${error}`);
-        return res.status(500).json({ error: "Conversion failed" });
+        console.error(`Exec Error: ${error}`);
+        return res.status(500).json({ error: "Conversion failed", details: stderr });
       }
-      res.json({ htmlUrl: `http://localhost:3001/converted/${outputName}` });
+      
+      const protocol = req.get('x-forwarded-proto') || req.protocol;
+      const host = req.get('host');
+      res.json({ htmlUrl: `${protocol}://${host}/converted/${outputName}` });
     });
   });
 });
